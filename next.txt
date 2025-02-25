@@ -1,5 +1,0 @@
-todo:
-- luigi einrichten
-- mehr daten
-- dann time lagged features
-- dann evaluieren
