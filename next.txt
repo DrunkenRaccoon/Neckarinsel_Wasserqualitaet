@@ -1,3 +1,5 @@
-mehr regendaten
-mehr sonnendaten
-erddaten
+todo:
+- luigi einrichten
+- mehr daten
+- dann time lagged features
+- dann evaluieren
