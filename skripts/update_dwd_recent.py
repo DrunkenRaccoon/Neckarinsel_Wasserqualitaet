@@ -13,6 +13,7 @@ BASE_URL = "https://opendata.dwd.de/climate_environment/CDC/observations_germany
 CATEGORIES = {
     "air_temperature": "lufttemp",
     "moisture": "feuchtigkeit",
+    "precipitation": "regen",
     "pressure": "druck",
     "soil_temperature": "boden",
     "solar": "strahlung",
@@ -24,6 +25,7 @@ ID_MAX = 4933
 DATA_DIR = os.path.join("Daten", "Wetter_2024")
 RECENT_DIR = os.path.join(DATA_DIR, "recents")
 os.makedirs(RECENT_DIR, exist_ok=True)
+AGGREGATION_START = "2023-01-01"
 
 
 def fix_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,11 +37,17 @@ def fix_dates(df: pd.DataFrame) -> pd.DataFrame:
 
 def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     renames = {}
-    return df.rename(columns=renames)
+    return df.rename(columns=lambda col: renames.get(col, col.strip()))
 
 
 def remove_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=["eor", "STATIONS_ID", "MESS_DATUM"], errors="ignore")
+
+
+def get_aggregation_end(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    if now is None:
+        now = pd.Timestamp.now()
+    return now.normalize() + pd.Timedelta(days=2) - pd.Timedelta(hours=1)
 
 
 def download_file(url: str) -> bytes:
@@ -111,23 +119,26 @@ def update_category(cat: str, short: str) -> None:
     if os.path.exists(raw_path):
         df_exist = pd.read_csv(raw_path, sep=";")
         df_new = pd.concat([df_exist, df_new], ignore_index=True)
-        df_new.drop_duplicates(subset=["MESS_DATUM", "STATIONS_ID"], inplace=True)
+        df_new.drop_duplicates(subset=["MESS_DATUM", "STATIONS_ID"], keep="last", inplace=True)
+    df_new.sort_values(["STATIONS_ID", "MESS_DATUM"], inplace=True)
     df_new.to_csv(raw_path, sep=";", index=False)
 
     df_clean = fix_dates(df_new.copy())
     df_clean = rename_columns(df_clean)
     df_clean = remove_duplicate_columns(df_clean)
+    df_clean = df_clean.reset_index()
     clean_path = os.path.join(DATA_DIR, f"clean_schnarrenberg_dwd_{short}.csv")
     if os.path.exists(clean_path):
         df_exist = pd.read_csv(clean_path)
-        df_clean = pd.concat([df_exist, df_clean.reset_index()], ignore_index=True)
-    df_clean.drop_duplicates(subset="DATUM", inplace=True)
+        df_clean = pd.concat([df_exist, df_clean], ignore_index=True)
+    df_clean.drop_duplicates(subset="DATUM", keep="last", inplace=True)
+    df_clean.sort_values("DATUM", inplace=True)
     df_clean.to_csv(clean_path, index=False)
 
 
 def aggregate_all() -> None:
     files = glob.glob(os.path.join(DATA_DIR, "clean_schnarrenberg_dwd_*.csv"))
-    date_range = pd.date_range("2023-01-01", "2025-12-31 23:00:00", freq="h")
+    date_range = pd.date_range(AGGREGATION_START, get_aggregation_end(), freq="h")
     df_agg = pd.DataFrame(index=date_range)
     for file in files:
         df_part = pd.read_csv(file)
